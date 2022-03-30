@@ -2,7 +2,7 @@ library(data.table)
 library(brms)
 library(ggplot2)
 library(argparse)
-CPUS_DEFAULT <- 1
+CPUS_DEFAULT <- 8
 parser <- ArgumentParser(description='Run within-person alpha')
 parser$add_argument('--happy', action = 'store_true', help = 'happy versus calm instead of fear?')
 parser$add_argument('--moresamples', action = 'store_true', help = 'add samples?')
@@ -13,7 +13,7 @@ parser$add_argument('--adaptdelta', type = 'double', help = 'Value for adapt del
 parser$add_argument('--nosmooth', action = 'store_true', help = 'use unsmoothed data?')
 parser$add_argument('--predictors', action = 'store_true', help = 'compute variance explained by predictors')
 
-# args <- parser$parse_args(c('--chains', '1', '--threads', '1', '--adaptdelta', '.999', '--nosmooth', '--subsample', '--predictors'))
+# args <- parser$parse_args(c('--chains', '4', '--threads', '2', '--adaptdelta', '.999', '--nosmooth', '--subsample', '--predictors'))
 args <- parser$parse_args()
 
 print(args)
@@ -35,6 +35,8 @@ if(is.na(task_id)){
   message('Assuming cpus total is at least ', chains*threads)
   this_ROI <- 421 #TO BE SET BY SLURM ENV VAR
   cpus_total <- CPUS_DEFAULT
+  iterations <- 100
+  warmup <- 50
 } else {
   this_ROI <- task_id
   message('Running as slurm array with task id=ROI: ', task_id, '=', this_ROI)
@@ -83,7 +85,7 @@ if(!dim(roi_d)[[1]] == max(roi_d$v) * 292){
   stop('Data length is not as expected')
 }
 
-psych_d <- readr::read_csv('/ncf/mclaughlin/stressdevlab/stress_pipeline/Group/NewNeuropoint/data/')
+psych_d <- readr::read_csv('./psychdata/stress_psych_sleep-midpoint5.csv')
 
 source('lme4_Addendum.R', print.eval = TRUE)
 
@@ -101,35 +103,62 @@ roi_d[, sess_fac := factor(sess)]
 message(sprintf('Total voxels: %d', max(roi_d[, .N, by = c('id', 'sess')][, N])))
 
 #  icc_form <- bf(y ~ 1 + sess + (1 | id))
-alpha_model_form <- bf(y ~ 1 + sess_fac + (1 | id/sess))
 
-dir.create('fits')
-get_prior(alpha_model_form, data = roi_d)
-priors <- prior(normal(0, 0.25), class = sd)
-
-if(threads == 1){
-  alpha_model_comp <- brm(alpha_model_form, data = roi_d, 
-                          family = 'student',
-                          chains = 1, cores = 1,
-                          iter = 10, prior = priors,
-                          file = 'fits/alpha_compiled')
-  prior_summary(alpha_model_comp)
-  alpha_model_fit <- update(alpha_model_comp, formula. = alpha_model_form, newdata = roi_d, 
-                            family = 'student', prior = priors,
-                            chains = chains, cores = chains, 
-                            iter = iterations, warmup = warmup, control = list(adapt_delta = adaptdelta, max_treedepth = 15), 
-                            file = outname)
-} else if(threads > 1){
-  message('Running with multiple threads, compiling every time.')
-  threader <- threading(threads = threads, grainsize = NULL)
-  alpha_model_fit <- brm(alpha_model_form, data = roi_d, 
-                         family = 'student', prior = priors,
-                         backend = 'cmdstan', threads = threader,
-                         chains = chains, cores = chains, 
-                         iter = iterations, warmup = warmup, control = list(adapt_delta = adaptdelta, max_treedepth = 15), 
-                         file = outname)
+if(PREDICTORS){
+  psych_d$sess <- sprintf('%02d', psych_d$time)
+  psych_d$id <- as.character(psych_d$idnum)
+  roi_d <- merge(roi_d, psych_d, by = c('id', 'sess'))
+  model_form <- list(eptot = bf(y ~ 1 + TIMECENTER + GCEN_EPISODICTOT + WCEN_EPISODICTOT + (1 | id)),
+                     chsev = bf(y ~ 1 + TIMECENTER + GCEN_CHRONICSEV + WCEN_CHRONICSEV + (1 | id)),
+                     panasneg = bf(y ~ 1 + TIMECENTER + GCEN_PANASNEG + WCEN_PANASNEG + (1 | id)),
+                     sleep = bf(y ~ 1 + TIMECENTER + GCEN_SLEEPDUR + WCEN_SLEEPDUR + (1 | id)),
+                     time = bf(y ~ 1 + TIMECENTER + (1 | id)),
+                     all = bf(y ~ 1 + sess_fac + GCEN_EPISODICTOT + WCEN_EPISODICTOT + 
+                                GCEN_CHRONICSEV + WCEN_CHRONICSEV + 
+                                GCEN_PANASNEG + WCEN_PANASNEG + 
+                                GCEN_SLEEPDUR + WCEN_SLEEPDUR + (1 | id/sess)))
+  outname <- paste0(outname, '_', names(model_form))
+                     
 } else {
-  stop('Threads argument misspecified...')
+  #ICC and alpha
+  model_form <- bf(y ~ 1 + sess_fac + (1 | id/sess))  
 }
 
+fit_model <- function(model_form, outname, data, chains, cores, iter, warmup, threads, adaptdelta){
+  if(!dir.exists('fits')){
+    dir.create('fits')
+  } 
+  get_prior(model_form, data = data)
+  priors <- prior(normal(0, 0.25), class = sd)
+  
+  if(threads == 1){
+    model_comp <- brm(model_form, data = data, 
+                      family = 'student',
+                      chains = 1, cores = 1,
+                      iter = 10, prior = priors,
+                      file = 'fits/alpha_compiled')
+    prior_summary(model_comp)
+    model_fit <- update(model_comp, formula. = model_form, newdata = data, 
+                        family = 'student', prior = priors,
+                        chains = chains, cores = chains, 
+                        iter = iterations, warmup = warmup, control = list(adapt_delta = adaptdelta, max_treedepth = 15), 
+                        file = outname)
+  } else if(threads > 1){
+    message('Running with multiple threads, compiling every time.')
+    threader <- threading(threads = threads, grainsize = NULL)
+    model_fit <- brm(model_form, data = data, 
+                     family = 'student', prior = priors,
+                     backend = 'cmdstan', threads = threader,
+                     chains = chains, cores = chains, 
+                     iter = iterations, warmup = warmup, control = list(adapt_delta = adaptdelta, max_treedepth = 15), 
+                     file = outname)
+  } else {
+    stop('Threads argument misspecified...')
+  }
+  return(model_fit)
+}
 
+fits <- mapply(fit_model, model_form = model_form, outname = outname, 
+               MoreArgs = list(data = roi_d, chains = chains, cores = chains, 
+                               iter = iterations, warmup = warmup, threads = threads, 
+                               adaptdelta = adaptdelta))
