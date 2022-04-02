@@ -1,24 +1,51 @@
 library(data.table)
 library(brms)
-CPUS_DEFAULT <- 1
+CPUS_DEFAULT <- 7
 setDTthreads(CPUS_DEFAULT)
 
 #collect
-compute_reliability <- function(fit_files_dt){
+read_fit_files <- function(fit_files_dt){
   setDTthreads(1)
   fits <- lapply(file.path('fits', fit_files_dt$file), readRDS)
   cfit <- brms::combine_models(mlist = fits)
+  return(cfit)
+}
+compute_reliability <- function(fit_files_dt){
+  setDTthreads(1)
+  cfit <- read_fit_files(fit_files_dt)
   vc <- VarCorr(cfit, summary = FALSE)
   tau_pi <- vc$`id:sess`$sd^2
   tau_beta <- vc$id$sd^2
   sigma2 <- vc$residual__$sd^2
   nvoxel <- length(cfit$data$y)/dim(unique(cfit$data[, c('sess', 'id:sess')]))[[1]]
   alpha_post <- tau_pi / (tau_pi + sigma2/nvoxel)
-  pvar <- tau_pi / (tau_pi + tau_beta + sigma2)
-  pvar_id <- tau_beta / (tau_pi + tau_beta + sigma2)
-  model_info <- unique(fit_files_dt[, c('roi', 'sub', 'ns')])
-  post_df <- data.frame(alpha = alpha_post[,1], prop_var = pvar[,1], prop_var_id = pvar_id[,1])
-  if(model_info$sub == '-sub' & model_info$ns == '-ns'){
+  total_var <- tau_pi + tau_beta + sigma2
+  pvar <- tau_pi / total_var
+  pvar_id <- tau_beta / total_var
+  model_info <- unique(fit_files_dt[, c('roi', 'sub', 'ns', 'pred')])
+  post_df <- data.frame()
+  if(model_info$pred == '-pred_all'){
+    null_model_files <- data.table(file = dir('fits', 
+                                              pattern = unique(gsub('-pred_all', '', fit_files_dt$file))))
+    null_model <- read_fit_files(null_model_files)
+    vc_null <- VarCorr(null_model, summary = FALSE)
+    tau_pi_delta <- vc_null$`id:sess`$sd^2 - tau_pi
+    tau_beta_delta <- vc_null$id$sd^2 - tau_beta
+    sigma2_delta <- vc_null$residual__$sd^2 - sigma2
+    tau_pi_delta_prop <- tau_pi_delta / vc_null$`id:sess`$sd^2
+    tau_beta_delta_prop <- tau_beta_delta / vc_null$id$sd^2
+    sigma2_delta_prop <- sigma2_delta / vc_null$residual__$sd^2
+    post_df <- data.frame(tau_pi_delta = tau_pi_delta[,1],
+                          tau_beta_delta = tau_beta_delta[,1],
+                          sigma2_delta = sigma2_delta[,1],
+                          tau_pi_delta_prop = tau_pi_delta_prop[,1],
+                          tau_beta_delta_prop = tau_beta_delta_prop[,1],
+                          sigma2_delta_prop = sigma2_delta_prop[,1])
+  }
+  post_df <- cbind(post_df, data.frame(alpha = alpha_post[,1], 
+                                       prop_var = pvar[,1], 
+                                       prop_var_id = pvar_id[,1]))
+  if(model_info$sub == '-sub' & model_info$ns == '-ns' & model_info$pred != '-pred_all'){
     #save a sample of the full posterior to create an overall mean later
     fn <- file.path('post_samples', gsub('.rds$', '-psamp.rds', unique(fit_files_dt[, c('file')])))
     if(!file.exists(fn)) saveRDS(post_df[sample(1:dim(post_df)[[1]], 1000), ], file = fn)
@@ -31,20 +58,17 @@ compute_reliability <- function(fit_files_dt){
     return(d)
   }))
   post_sum <- data.table(posterior_summary(post_df, robust = TRUE), keep.rownames = TRUE)
-  post_sum[, c('nvoxel', 'roi', 'sub', 'ns') := c(nvoxel, model_info)]
+  post_sum[, c('nvoxel', 'roi', 'sub', 'ns', 'pred') := c(nvoxel, model_info)]
   return(list(post_sum = post_sum, density_df = d_df))
 }
 
-gsub_regex <- 'alpha-fearGTcalm-ROI([0-9]{1,3})(-more_\\d{2})*(-sub)*(-ns)*.rds'
+gsub_regex <- 'alpha-fearGTcalm-ROI([0-9]{1,3})(-more_\\d{2})*(-sub)*(-ns)*(-pred_\\w+)*.rds'
 
 alpha_fit_files <- data.table(file = dir('fits', pattern = 'alpha-fearGTcalm.*rds'))
-alpha_fit_files[, c('roi', 'more', 'sub', 'ns') := 
-                  list(gsub(gsub_regex, '\\1', file),
-                       gsub(gsub_regex, '\\2', file),
-                       gsub(gsub_regex, '\\3', file),
-                       gsub(gsub_regex, '\\4', file))]
+alpha_fit_files[, c('roi', 'more', 'sub', 'ns', 'pred') := 
+                  lapply(list('\\1', '\\2', '\\3', '\\4', '\\5'), gsub, pattern = gsub_regex, x = file)]
 filenames <- split(split(alpha_fit_files, 
-                         by = c('roi', 'sub', 'ns'),
+                         by = c('roi', 'sub', 'ns', 'pred'),
                          drop = TRUE), 1:CPUS_DEFAULT)
 rel_fn <- 'reliability_results.rds'
 bd_fn <- 'boundary_density.rds'
@@ -64,7 +88,7 @@ if(!file.exists(rel_fn)){
   reliability_list_ul <- unlist(reliability_list, recursive = FALSE)
   reliability_dt <- rbindlist(lapply(reliability_list_ul, 
                                      `[[`, 'post_sum'))
-  #computed densities of the reliability metrics posteriors
+  #computed densities of the reliability metrices posteriors
   boundary_density_dt <- rbindlist(lapply(reliability_list_ul, 
                                           function(rel){
                                             rel$density_df$roi <- unique(rel$post_sum$roi)[[1]]
