@@ -4,7 +4,7 @@ CPUS_DEFAULT <- 7
 cpus_total <- as.numeric(Sys.getenv('SLURM_CPUS_PER_TASK'))
 
 if(is.na(cpus_total)){
-  message('Not running as slurm array, setting ROI to some value')
+  message('Not running as slurm array, setting ROI to some value: ', CPUS_DEFAULT)
   cpus_total <- CPUS_DEFAULT
   INTERACTIVE <- TRUE
 } else {
@@ -143,22 +143,20 @@ if(!file.exists(rel_fn)){
 
 if(INTERACTIVE){
   #average voxels per parcel
-  reliability_dt[sub == '' & ns == '-ns' & rn == 'prop_var'][, .(nvoxel_median = quantile(nvoxel, .5),
-                                                                 nvoxel_25 = quantile(nvoxel, .25),
-                                                                 nvoxel_75 = quantile(nvoxel, .75))]
+  reliability_dt[sub == '' & ns == '-ns' & rn == 'prop_var' & pred == ''][, .(nvoxel_median = quantile(nvoxel, .5),
+                                                                              nvoxel_25 = quantile(nvoxel, .25),
+                                                                              nvoxel_75 = quantile(nvoxel, .75))]
   
-  gsub_regex <- 'alpha-fearGTcalm-ROI([0-9]{1,3})(-more_\\d{2})*(-sub)*(-ns)-psamp*.rds'
+  gsub_regex <- 'alpha-fearGTcalm-ROI([0-9]{1,3})(-more_\\d{2})*(-sub)*(-ns)*(-pred_\\w+)*-psamp.rds'
   
   postsamp_files <- data.table(file = dir('post_samples', pattern = 'alpha-fearGTcalm.*rds'))
-  postsamp_files[, c('roi', 'more', 'sub', 'ns') := 
-                   list(gsub(gsub_regex, '\\1', file),
-                        gsub(gsub_regex, '\\2', file),
-                        gsub(gsub_regex, '\\3', file),
-                        gsub(gsub_regex, '\\4', file))]
+  postsamp_files[, c('roi', 'more', 'sub', 'ns', 'pred') := 
+                   lapply(list('\\1', '\\2', '\\3', '\\4', '\\5'), gsub, pattern = gsub_regex, x = file)]
+  
   postsamp_filenames <- split(postsamp_files, 1:cpus_total)
   
   prop_var_post_samps_fn <- 'prop_var_post_samps.rds'
-  if(!file.exists(grpd_prop_var_fn)){
+  if(!file.exists(prop_var_post_samps_fn)){
     cl <- parallel::makeCluster(cpus_total)
     
     nada <- parallel::clusterEvalQ(cl, {library(data.table); setDTthreads(1)})
@@ -229,23 +227,23 @@ if(INTERACTIVE){
   
   #should be 0
   reliability_dt[
-    rn == 'prop_var' & sub == '-sub'& ns == '-ns', ][
+    rn == 'prop_var' & sub == '-sub'& ns == '-ns' & pred == '', ][
       data.table(roi = sprintf('%03d', 1:421)), on = 'roi'][
         is.na(Estimate), roi]
   
   #should be 421
   reliability_dt[
-    rn == 'prop_var' & sub == '-sub' & ns == '-ns', ][
+    rn == 'prop_var' & sub == '-sub' & ns == '-ns' & pred == '', ][
       data.table(roi = sprintf('%03d', 1:421)), on = 'roi'][
         !is.na(Estimate), .N]
   
   reliability_dt[
-    rn == 'prop_var' & sub == '' & ns == '-ns', ][
+    rn == 'prop_var' & sub == '' & ns == '-ns' & pred == '', ][
       data.table(roi = sprintf('%03d', 1:421)), on = 'roi'][
         !is.na(Estimate), .N]
   
   
-  reliability_dt[rn == 'prop_var' & sub == '-sub' & ns == '-ns' & nvoxel < 15]
+  reliability_dt[rn == 'prop_var' & sub == '-sub' & ns == '-ns'  & pred == '' & nvoxel < 15]
   
   #Plot 
   
@@ -255,7 +253,7 @@ if(INTERACTIVE){
   reliability_dt_labels[, label_text := fifelse((Estimate < .22 & rn == 'prop_var') |
                                                   (Estimate < .75 & rn == 'alpha'), label, NA_character_)]
   
-  reliability_dt_labels[rn == 'prop_var' & sub == '-sub' & ns == '-ns' & roi > 400, c('label', 'label_text', 'Estimate')]
+  reliability_dt_labels[rn == 'prop_var' & sub == '-sub' & ns == '-ns' & pred == '' & roi > 400, c('label', 'label_text', 'Estimate')]
   
   reliability_dt_labels[, roi_num_reverse := -1*(roi_num - 401)]
   
@@ -264,7 +262,7 @@ if(INTERACTIVE){
   library(patchwork)
   
   reliability_dt_labels_prop_w <- dcast(reliability_dt_labels[rn %in% c('prop_var_id', 'idsess_right') & 
-                                                                ns == '-ns' & sub == '-sub' & 
+                                                                ns == '-ns' & sub == '-sub' & pred == '' & 
                                                                 !roi_num %in% c(402, 413), #exclude cerebral cortex from HO
                                                               c('rn', 'roi_num', 'Estimate', 'roi_num_reverse')],
                                         ... ~ rn, value.var = 'Estimate')
@@ -328,15 +326,15 @@ if(INTERACTIVE){
   
   ggplot(brain_group_prop_var_dens, aes(x = x, y = y_pct)) + 
     geom_line() + 
-    facet_wrap(~ group + param, scales = 'free', ncol = 2)
+    facet_wrap(~ group + param, ncol = 2)
   
   ggplot(post_samps_dt, aes(x = id)) + 
     geom_density() + 
-    facet_wrap(~ group, scales = 'free', ncol = 2)
+    facet_wrap(~ group, ncol = 2)
   
   ggplot(post_samps_dt, aes(x = id_sess)) + 
     geom_density() + 
-    facet_wrap(~ group, scales = 'free', ncol = 2)
+    facet_wrap(~ group, ncol = 2)
   
   
   # Mean (with CI) proportions by regions
@@ -345,7 +343,9 @@ if(INTERACTIVE){
   
   # Between ICC 
   
-  between_icc_plot <- ggplot(reliability_dt_labels[rn == 'prop_var_id' & sub == '-sub' & ns == '-ns' & ! grepl('Cerebral Cortex', label)], 
+  between_icc_plot <- ggplot(reliability_dt_labels[rn == 'prop_var_id' & sub == '-sub' & 
+                                                     ns == '-ns' & pred == '' &
+                                                     ! grepl('Cerebral Cortex', label)], 
                              aes(x = Estimate, xmin = Q2.5, xmax = Q97.5, y = roi_num_reverse)) +
     geom_rect(ymin = -19, ymax = 0, xmin = 0, xmax = 1, fill = 'lightgrey') + 
     geom_errorbar(alpha = .5, width = 0, size = .25) +
@@ -358,7 +358,9 @@ if(INTERACTIVE){
   
   ns_icc_range <- range(reliability_dt_labels[rn == 'prop_var' & sub == '-sub' & ns == '-ns' & ! grepl('Cerebral Cortex', label), Estimate])
   
-  within_icc_plot <- ggplot(reliability_dt_labels[rn == 'prop_var' & sub == '-sub' & ns == '-ns' & ! grepl('Cerebral Cortex', label)], 
+  within_icc_plot <- ggplot(reliability_dt_labels[rn == 'prop_var' & sub == '-sub' &
+                                                  ns == '-ns' & pred == '' &
+                                                    ! grepl('Cerebral Cortex', label)], 
                             aes(x = Estimate, xmin = Q2.5, xmax = Q97.5, y = roi_num_reverse)) +
     geom_rect(ymin = -19, ymax = 0, xmin = 0, xmax = 1, fill = 'lightgrey') + 
     geom_errorbar(alpha = .5, width = 0, size = .10) +
@@ -377,7 +379,9 @@ if(INTERACTIVE){
   # theme(axis.text.y = element_blank(), axis.ticks.y = element_blank())
   ggsave('prop_var_id-session-ns.svg', width = 8, height = 5, dpi = 150)
   
-  within_icc_plot <- ggplot(reliability_dt_labels[rn == 'prop_var' & sub == '-sub' & ns == '' & ! grepl('Cerebral Cortex', label)], 
+  within_icc_plot <- ggplot(reliability_dt_labels[rn == 'prop_var' & sub == '-sub' &
+                                                    ns == '-ns' & pred == '' & 
+                                                    ! grepl('Cerebral Cortex', label)], 
                             aes(x = Estimate, xmin = Q2.5, xmax = Q97.5, y = roi_num_reverse)) +
     geom_rect(ymin = -19, ymax = 0, xmin = 0, xmax = 1, fill = 'lightgrey') + 
     geom_errorbar(alpha = .5, width = 0, size = .25) +
@@ -392,7 +396,9 @@ if(INTERACTIVE){
   # theme(axis.text.y = element_blank(), axis.ticks.y = element_blank())
   ggsave('prop_var_id-session.svg', width = 8, height = 5, dpi = 150)
   
-  within_icc_plot <- ggplot(reliability_dt_labels[rn == 'alpha' & sub == '-sub' & ns == '-ns' & ! grepl('Cerebral Cortex', label)], 
+  within_icc_plot <- ggplot(reliability_dt_labels[rn == 'alpha' & sub == '-sub' &
+                                                    ns == '-ns' & pred == '' &
+                                                    ! grepl('Cerebral Cortex', label)], 
                             aes(x = Estimate, xmin = Q2.5, xmax = Q97.5, y = roi_num_reverse)) +
     geom_rect(ymin = -19, ymax = 0, xmin = 0, xmax = 1, fill = 'lightgrey') + 
     geom_errorbar(alpha = .5, width = 0, size = .25) +
@@ -407,7 +413,9 @@ if(INTERACTIVE){
   # theme(axis.text.y = element_blank(), axis.ticks.y = element_blank())
   ggsave('alpha_id-session-ns.svg', width = 8, height = 5, dpi = 150)
   
-  within_icc_plot <- ggplot(reliability_dt_labels[rn == 'alpha' & sub == '' & ns == '-ns' & ! grepl('Cerebral Cortex', label)], 
+  within_icc_plot <- ggplot(reliability_dt_labels[rn == 'alpha' & sub == '' &
+                                                    ns == '-ns' & pred == '' &
+                                                    ! grepl('Cerebral Cortex', label)], 
                             aes(x = Estimate, xmin = Q2.5, xmax = Q97.5, y = roi_num_reverse)) +
     geom_rect(ymin = -19, ymax = 0, xmin = 0, xmax = 1, fill = 'lightgrey') + 
     geom_errorbar(alpha = .5, width = 0, size = .25) +
@@ -421,7 +429,75 @@ if(INTERACTIVE){
   print(within_icc_plot)
   # theme(axis.text.y = element_blank(), axis.ticks.y = element_blank())
   ggsave('alpha-allvox_id-session-ns.svg', width = 8, height = 5, dpi = 150)
+
+  reliability_dt_labels[, credible := (sign(Q0.006) * sign(Q99.994)) == 1]
+  reliability_dt_labels[, credible_95 := (sign(Q2.5) * sign(Q97.5)) == 1]
   
+  tau_pi_delta_prop_plot <- ggplot(reliability_dt_labels[rn == 'tau_pi_delta_prop' & sub == '-sub' &
+                                                    ns == '-ns' & pred == '-pred_all' &
+                                                    ! grepl('Cerebral Cortex', label)], 
+                            aes(x = Estimate, xmin = Q2.5, xmax = Q97.5, y = roi_num_reverse)) +
+    geom_rect(ymin = -19, ymax = 0, xmin = -1, xmax = 1, fill = 'lightgrey') + 
+    geom_errorbar(alpha = .5, width = 0, size = .25, aes(color = credible_95)) +
+    geom_point(size = .5, aes(color = credible_95)) + 
+    scale_y_continuous(breaks = c(-19, 1, seq(80, 400, 80)), labels = c('Harvard/Oxford\nSubcortex', 1, seq(80, 320, 80), 'Schaefer-400')) +
+    theme_minimal() + 
+    coord_cartesian(x = c(-1, 1)) + 
+    scale_color_manual(breaks = c(TRUE, FALSE), values = c('black', 'grey')) +
+    geom_label_repel(aes(label = label_text), box.padding = 1, max.overlaps = Inf, min.segment.length = 0, 
+                     nudge_x = -1, nudge_y = 75, fill = alpha('white', .65)) + 
+    labs(x = 'Proportion variance due to participant-session', y = 'Parcel')
+  print(tau_pi_delta_prop_plot)
+  
+  # which(! 1:400 %in% reliability_dt_labels[rn == 'tau_pi_delta_prop' & sub == '-sub' &
+  #                                            ns == '-ns' & pred == '-pred_all' &
+  #                                            roi_num <= 400, sort(roi_num)])
+  # which(! 1:400 %in% reliability_dt_labels[rn == 'b_TIMECENTER' & sub == '-sub' &
+  #                                            ns == '-ns' &
+  #                                            roi_num <= 400, sort(roi_num)])
+  
+  plot_preds <- function(x, variable, outfile){
+    plot <- ggplot(x[rn == variable & sub == '-sub' &
+                       ns == '-ns' &
+                       ! grepl('Cerebral Cortex', label)], 
+                   aes(x = Estimate, xmin = Q0.006, xmax = Q99.994, y = roi_num_reverse)) +
+      geom_rect(ymin = -19, ymax = 0, xmin = -1, xmax = 1, fill = 'lightgrey') + 
+      geom_errorbar(alpha = .5, width = 0, size = .25, aes(color = credible)) +
+      geom_point(size = .5, aes(color = credible)) + 
+      scale_y_continuous(breaks = c(-19, 1, seq(80, 400, 80)), labels = c('Harvard/Oxford\nSubcortex', 1, seq(80, 320, 80), 'Schaefer-400')) +
+      theme_minimal() + 
+      scale_color_manual(breaks = c(TRUE, FALSE), values = c('black', 'grey')) +
+      labs(x = 'Estimate (99.988% CI)', y = 'Parcel') + 
+      theme(legend.position = 'none')
+    ggsave(outfile, width = 4, height = 5, dpi = 150)
+    return(plot)    
+  }
+  #unique(reliability_dt_labels$rn)
+  plot_preds(x = reliability_dt_labels, variable = 'b_TIMECENTER', outfile = 'time-ns-sub.svg')
+  plot_preds(x = reliability_dt_labels, variable = 'b_WCEN_EPISODICTOT', outfile = 'episodic_stress-ns-sub.svg')
+  plot_preds(x = reliability_dt_labels, variable = 'b_WCEN_CHRONICSEV', outfile = 'chronic_stress-ns-sub.svg')
+  plot_preds(x = reliability_dt_labels, variable = 'b_WCEN_PANASNEG', outfile = 'negative_affect-ns-sub.svg')
+  plot_preds(x = reliability_dt_labels, variable = 'b_WCEN_SLEEPDUR', outfile = 'sleep-ns-sub.svg')
+  # theme(axis.text.y = element_blank(), axis.ticks.y = element_blank())
+  
+  write_cifti_text <- function(x, variable, outfile){
+    #x <- copy(reliability_dt_labels)
+    x <- x[rn == variable & sub == '-sub' &
+             ns == '-ns' &
+             ! grepl('Cerebral Cortex', label), 
+           c('roi_num', 'Estimate', 'credible')]
+    setkey(x, roi_num)
+    rois <- data.table(roi_num = 1:400)
+    out_data <- x[rois]
+    out_data[! credible %in% TRUE, Estimate := 0]
+    write.table(out_data[, Estimate], file = outfile, row.names = FALSE, col.names = FALSE)
+  }
+  
+  write_cifti_text(x = reliability_dt_labels, variable = 'b_TIMECENTER', outfile = 'time-ns-sub.txt')
+  write_cifti_text(x = reliability_dt_labels, variable = 'b_WCEN_EPISODICTOT', outfile = 'episodic_stress-ns-sub.txt')
+  write_cifti_text(x = reliability_dt_labels, variable = 'b_WCEN_CHRONICSEV', outfile = 'chronic_stress-ns-sub.txt')
+  write_cifti_text(x = reliability_dt_labels, variable = 'b_WCEN_PANASNEG', outfile = 'negative_affect-ns-sub.txt')
+  write_cifti_text(x = reliability_dt_labels, variable = 'b_WCEN_SLEEPDUR', outfile = 'sleep-ns-sub.txt')
   
   range_text <- function(v, caption, v_range_code = "%0.2f", v_iqr_code = "%0.2f-%0.2f"){
     v_range <- paste(sprintf(v_range_code, range(v)), collapse = ', ') 
