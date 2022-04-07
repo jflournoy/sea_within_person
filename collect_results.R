@@ -1,6 +1,6 @@
 library(data.table)
 library(brms)
-CPUS_DEFAULT <- 7
+CPUS_DEFAULT <- 1
 cpus_total <- as.numeric(Sys.getenv('SLURM_CPUS_PER_TASK'))
 
 if(is.na(cpus_total)){
