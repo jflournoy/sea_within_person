@@ -4,7 +4,7 @@
 #SBATCH -n 1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=12G
-#SBATCH -p ncf
+#SBATCH -p fasse
 #SBATCH --account=mclaughlin_lab
 # Outputs ----------------------------------
 #SBATCH -o log/%x-%A_%a.out
