@@ -142,6 +142,70 @@ if(!file.exists(rel_fn)){
 }
 
 if(INTERACTIVE){
+  library(ggplot2)
+  library(ggrepel)
+  library(patchwork)
+  
+  plot_preds <- function(x, variable, outfile){
+    plot <- ggplot(x[rn == variable & sub == '-sub' &
+                       ns == '-ns' &
+                       ! grepl('Cerebral Cortex', label)], 
+                   aes(x = Estimate, xmin = Q0.006, xmax = Q99.994, y = roi_num_reverse)) +
+      geom_rect(ymin = -19, ymax = 0, xmin = -1, xmax = 1, fill = 'lightgrey') + 
+      geom_errorbar(alpha = .5, width = 0, size = .25, aes(color = credible)) +
+      geom_point(size = .5, aes(color = credible)) + 
+      scale_y_continuous(breaks = c(-19, 1, seq(80, 400, 80)), labels = c('Harvard/Oxford\nSubcortex', 1, seq(80, 320, 80), 'Schaefer-400')) +
+      theme_minimal() + 
+      scale_color_manual(breaks = c(TRUE, FALSE), values = c('black', 'grey')) +
+      labs(x = 'Estimate (99.988% CI)', y = 'Parcel') + 
+      theme(legend.position = 'none')
+    ggsave(outfile, width = 4, height = 5, dpi = 150)
+    return(plot)    
+  }
+  
+  write_cifti_text <- function(x, variable, outfile){
+    #x <- copy(reliability_dt_labels)
+    x <- x[rn == variable & sub == '-sub' &
+             ns == '-ns' &
+             ! grepl('Cerebral Cortex', label), 
+           c('roi_num', 'Estimate', 'credible')]
+    setkey(x, roi_num)
+    rois <- data.table(roi_num = 1:400)
+    out_data <- x[rois]
+    out_data[! credible %in% TRUE, Estimate := 0]
+    write.table(out_data[, Estimate], file = outfile, row.names = FALSE, col.names = FALSE)
+    return(TRUE)
+  }
+  
+  range_text <- function(v, caption, v_range_code = "%0.2f", v_iqr_code = "%0.2f-%0.2f"){
+    v_range <- paste(sprintf(v_range_code, range(v)), collapse = ', ') 
+    v_iqr <- sprintf(v_iqr_code, quantile(v, .25), quantile(v, .75))
+    N <- length(v)
+    s <- sprintf(paste0(caption, " [%s] (IQR %s; N = %i)."), v_range, v_iqr, N)
+    return(s)
+  }
+  
+  create_cifti <- function(text_file, cifti_template, cifti_out){
+    module_cmd <- 'module load connectome-workbench/1.3.2-fasrc01'
+    wb_cmd <- paste('wb_command', '-cifti-convert', '-from-text', text_file, cifti_template, cifti_out, sep = ' ')
+    if(!file.exists(cifti_template)){
+      cifti_dscalar <- gsub('pscalar', 'dscalar', cifti_template)
+      cifti_dlabel <- gsub('pscalar', 'dlabel', cifti_template)
+      prereqs <- c(cifti_dscalar, cifti_dlabel)
+      template_prereq_exist <- file.exists(prereqs)
+      if(!all(template_prereq_exist)){
+        stop(paste('Not all template prerequisites exist:', 
+                   paste(prereqs[!template_prereq_exist], collapse = '\n')))
+      }
+      mk_template_cmd <- paste('wb_command', '-cifti-parcellate', cifti_dscalar, cifti_dlabel, 'COLUMN', cifti_template, sep = ' ')
+      mk_template_cmd <- paste(module_cmd, mk_template_cmd, sep = '; ')
+      system(mk_template_cmd)
+    }
+    cmd <- paste(module_cmd, wb_cmd, sep = '; ')
+    system(cmd)
+    return(TRUE)
+  }
+  
   #average voxels per parcel
   reliability_dt[sub == '' & ns == '-ns' & rn == 'prop_var' & pred == ''][, .(nvoxel_median = quantile(nvoxel, .5),
                                                                               nvoxel_25 = quantile(nvoxel, .25),
@@ -242,7 +306,6 @@ if(INTERACTIVE){
       data.table(roi = sprintf('%03d', 1:421)), on = 'roi'][
         !is.na(Estimate), .N]
   
-  
   reliability_dt[rn == 'prop_var' & sub == '-sub' & ns == '-ns'  & pred == '' & nvoxel < 15]
   
   #Plot 
@@ -256,10 +319,6 @@ if(INTERACTIVE){
   reliability_dt_labels[rn == 'prop_var' & sub == '-sub' & ns == '-ns' & pred == '' & roi > 400, c('label', 'label_text', 'Estimate')]
   
   reliability_dt_labels[, roi_num_reverse := -1*(roi_num - 401)]
-  
-  library(ggplot2)
-  library(ggrepel)
-  library(patchwork)
   
   reliability_dt_labels_prop_w <- dcast(reliability_dt_labels[rn %in% c('prop_var_id', 'idsess_right') & 
                                                                 ns == '-ns' & sub == '-sub' & pred == '' & 
@@ -336,10 +395,9 @@ if(INTERACTIVE){
     geom_density() + 
     facet_wrap(~ group, ncol = 2)
   
-  
   # Mean (with CI) proportions by regions
   
-  tmp <- data.table(readRDS('post_samples/alpha-fearGTcalm-ROI001-sub-ns-psamp.rds'))
+  # tmp <- data.table(readRDS('post_samples/alpha-fearGTcalm-ROI001-sub-ns-psamp.rds'))
   
   # Between ICC 
   
@@ -456,22 +514,6 @@ if(INTERACTIVE){
   #                                            ns == '-ns' &
   #                                            roi_num <= 400, sort(roi_num)])
   
-  plot_preds <- function(x, variable, outfile){
-    plot <- ggplot(x[rn == variable & sub == '-sub' &
-                       ns == '-ns' &
-                       ! grepl('Cerebral Cortex', label)], 
-                   aes(x = Estimate, xmin = Q0.006, xmax = Q99.994, y = roi_num_reverse)) +
-      geom_rect(ymin = -19, ymax = 0, xmin = -1, xmax = 1, fill = 'lightgrey') + 
-      geom_errorbar(alpha = .5, width = 0, size = .25, aes(color = credible)) +
-      geom_point(size = .5, aes(color = credible)) + 
-      scale_y_continuous(breaks = c(-19, 1, seq(80, 400, 80)), labels = c('Harvard/Oxford\nSubcortex', 1, seq(80, 320, 80), 'Schaefer-400')) +
-      theme_minimal() + 
-      scale_color_manual(breaks = c(TRUE, FALSE), values = c('black', 'grey')) +
-      labs(x = 'Estimate (99.988% CI)', y = 'Parcel') + 
-      theme(legend.position = 'none')
-    ggsave(outfile, width = 4, height = 5, dpi = 150)
-    return(plot)    
-  }
   #unique(reliability_dt_labels$rn)
   plot_preds(x = reliability_dt_labels, variable = 'b_TIMECENTER', outfile = 'time-ns-sub.svg')
   plot_preds(x = reliability_dt_labels, variable = 'b_WCEN_EPISODICTOT', outfile = 'episodic_stress-ns-sub.svg')
@@ -480,32 +522,17 @@ if(INTERACTIVE){
   plot_preds(x = reliability_dt_labels, variable = 'b_WCEN_SLEEPDUR', outfile = 'sleep-ns-sub.svg')
   # theme(axis.text.y = element_blank(), axis.ticks.y = element_blank())
   
-  write_cifti_text <- function(x, variable, outfile){
-    #x <- copy(reliability_dt_labels)
-    x <- x[rn == variable & sub == '-sub' &
-             ns == '-ns' &
-             ! grepl('Cerebral Cortex', label), 
-           c('roi_num', 'Estimate', 'credible')]
-    setkey(x, roi_num)
-    rois <- data.table(roi_num = 1:400)
-    out_data <- x[rois]
-    out_data[! credible %in% TRUE, Estimate := 0]
-    write.table(out_data[, Estimate], file = outfile, row.names = FALSE, col.names = FALSE)
-  }
-  
   write_cifti_text(x = reliability_dt_labels, variable = 'b_TIMECENTER', outfile = 'time-ns-sub.txt')
   write_cifti_text(x = reliability_dt_labels, variable = 'b_WCEN_EPISODICTOT', outfile = 'episodic_stress-ns-sub.txt')
   write_cifti_text(x = reliability_dt_labels, variable = 'b_WCEN_CHRONICSEV', outfile = 'chronic_stress-ns-sub.txt')
   write_cifti_text(x = reliability_dt_labels, variable = 'b_WCEN_PANASNEG', outfile = 'negative_affect-ns-sub.txt')
   write_cifti_text(x = reliability_dt_labels, variable = 'b_WCEN_SLEEPDUR', outfile = 'sleep-ns-sub.txt')
   
-  range_text <- function(v, caption, v_range_code = "%0.2f", v_iqr_code = "%0.2f-%0.2f"){
-    v_range <- paste(sprintf(v_range_code, range(v)), collapse = ', ') 
-    v_iqr <- sprintf(v_iqr_code, quantile(v, .25), quantile(v, .75))
-    N <- length(v)
-    s <- sprintf(paste0(caption, " [%s] (IQR %s; N = %i)."), v_range, v_iqr, N)
-    return(s)
-  }
+  create_cifti(text_file = 'time-ns-sub.txt', cifti_template = 'Schaefer2018_CIFTI/Schaefer2018_400Parcels_7Networks_order.pscalar.nii', cifti_out = 'time-ns-sub_Sch400.pscalar.nii')
+  create_cifti(text_file = 'episodic_stress-ns-sub.txt', cifti_template = 'Schaefer2018_CIFTI/Schaefer2018_400Parcels_7Networks_order.pscalar.nii', cifti_out = 'episodic_stress-ns-sub_Sch400.pscalar.nii')
+  create_cifti(text_file = 'chronic_stress-ns-sub.txt', cifti_template = 'Schaefer2018_CIFTI/Schaefer2018_400Parcels_7Networks_order.pscalar.nii', cifti_out = 'chronic_stress-ns-sub_Sch400.pscalar.nii')
+  create_cifti(text_file = 'negative_affect-ns-sub.txt', cifti_template = 'Schaefer2018_CIFTI/Schaefer2018_400Parcels_7Networks_order.pscalar.nii', cifti_out = 'negative_affect-ns-sub_Sch400.pscalar.nii')
+  create_cifti(text_file = 'sleep-ns-sub.txt', cifti_template = 'Schaefer2018_CIFTI/Schaefer2018_400Parcels_7Networks_order.pscalar.nii', cifti_out = 'sleep-ns-sub_Sch400.pscalar.nii')
   
   #prop var sess-id not-smoothed
   cat(paste(
@@ -521,7 +548,6 @@ if(INTERACTIVE){
     ),
     collapse = '\n'))
   
-  
   #prop var sess-id smoothed
   cat(paste(
     c(
@@ -535,8 +561,6 @@ if(INTERACTIVE){
       #            "Range of ICC_between-person across HO cortex:")
     ),
     collapse = '\n'))
-  
-  
   
   #alpha, 15 voxels not-smoothed
   cat(paste(
