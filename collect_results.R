@@ -145,6 +145,8 @@ if(INTERACTIVE){
   library(ggplot2)
   library(ggrepel)
   library(patchwork)
+  library(ggsegSchaefer)
+  library(ggseg)
   
   plot_preds <- function(x, variable, outfile){
     plot <- ggplot(x[rn == variable & sub == '-sub' &
@@ -167,7 +169,7 @@ if(INTERACTIVE){
     #x <- copy(reliability_dt_labels)
     x <- x[rn == variable & sub == '-sub' &
              ns == '-ns' &
-             ! grepl('Cerebral Cortex', label), 
+             !grepl('Cerebral Cortex', label), 
            c('roi_num', 'Estimate', 'credible')]
     setkey(x, roi_num)
     rois <- data.table(roi_num = 1:400)
@@ -235,6 +237,133 @@ if(INTERACTIVE){
     system(cmd)
     return(TRUE)
   }
+  
+  plot_conditional_effect <- function(x, breaks = NA, labels = NA, ylim = c(-2, 2)){
+    variable <- gsub('b_', '', x$rn)
+    xmx <- readRDS(file.path('fits', x$mod_fn))
+    sign <- x$sign
+    colors <- c('#358fc9', '#fbaa2c')
+    color <- colors[sign/2 + 1.5]
+    
+    CEdf <- conditional_effects(xmx, effects = variable, prob = .95, re_formula = NA)[[1]]
+    pointsdf <- xmx$data
+    
+    p <- ggplot() + 
+      theme_minimal() + 
+      theme(panel.grid.minor = element_blank(), axis.text.y = element_blank()) + 
+      labs(x = '', y = '') +
+      stat_summary(data = pointsdf, aes_string(group = sprintf('interaction(id, %s)', variable),
+                                               x = variable, y = 'y'),
+                   fun = mean, fun.args = list(mult = 2),
+                   alpha = .2, color = color, size = .2,
+                   position = position_jitter(w = .25)) +
+      geom_ribbon(data = CEdf, aes_string(x = variable, y = 'estimate__', 
+                                          ymin = 'lower__', ymax = 'upper__'), 
+                  alpha = .5, fill = color) + 
+      geom_line(data = CEdf, aes_string(x = variable, y = 'estimate__'), color = color) +
+      coord_cartesian(y = ylim)
+    if(!is.na(breaks)){
+      p <- p + scale_x_continuous(breaks = breaks, labels = labels)
+    }
+    if(sign < 0){
+      p <- p + theme(axis.text.x = element_blank())
+    }
+    return(p)
+  }
+  
+  make_multi_plot <- function(x, xlab, file = NULL, ...){
+    p_list <- lapply(1:6, function(i){
+      plot_conditional_effect(x = x[i], ...)
+    })
+    
+    p <- wrap_plots(p_list, design = "123\n456")
+    gt <- patchwork::patchworkGrob(p)
+    pf <- gridExtra::grid.arrange(gt, left = "Fear - Calm", bottom = xlab)
+    if(!is.null(file)){
+      ggsave(file, plot = pf, width = 6, height = 4)
+    }
+    return(pf)
+  }
+  
+  make_parcel_icons <- function(outdir, dpi = 300){
+    if(!dir.exists(outdir)){
+      dir.create(outdir)
+    }
+    
+    region_data <- as.data.frame(schaefer7_400$data)[!is.na(schaefer7_400$data$region), c('hemi', 'side', 'region')]
+    nada <- lapply(1:dim(region_data)[[1]], \(x){
+      x <- region_data[x, ]
+      x$selected <- 'selected'
+      
+      outfile <- file.path(outdir, sprintf('%s_%s.png', x$region[[1]], x$side[[1]]))
+      
+      outplot <- ggplot(x) + 
+        geom_brain(atlas = schaefer7_400,
+                   hemi = x$hemi,
+                   side = x$side,
+                   aes(fill = selected, size = selected, alpha = selected, color = selected))  + 
+        scale_fill_manual(breaks = c('selected'), values = c('black'), na.value = 'white') + 
+        scale_size_manual(breaks = c('selected'), values = c(1), na.value = .05) +
+        scale_alpha_manual(breaks = c('selected'), values = c(1), na.value = 0) +
+        scale_color_manual(breaks = c('selected'), values = c(alpha('black', .5)), na.value = 'black') + 
+        theme_minimal() + 
+        theme(panel.grid = element_blank(),
+              axis.text = element_blank(),
+              axis.line = element_blank(),
+              axis.title = element_blank(),
+              axis.ticks = element_blank(),
+              plot.margin = unit(c(0, 0, 0, 0), units = 'in'),
+              legend.position = 'none') + 
+        coord_sf(expand = FALSE,
+                 xlim = c(0, 310),
+                 ylim = c(0, 210))
+      ggsave(outfile, outplot, width = 77.5, height = 52.5, units = 'px', dpi = dpi, scale = dpi/72)
+      return(TRUE)
+    })
+    return(dir(outdir))
+  }
+  
+  write_rez_table <- function(x, variable, tables_dir = 'tables'){
+    #x <- reliability_dt_labels
+    #variable <- 'b_TIMECENTER'
+    Sch7_400_regions <- fread('Schaefer2018_CIFTI/Schaefer2018_400Parcels_7Networks_order_info.txt', header = FALSE, col.names = 'region', sep = ',')
+    Sch7_400_regions <- Sch7_400_regions[seq(1, 800, 2)]
+    Sch7_400_regions[, roi_num := 1:400]
+    setkey(Sch7_400_regions, roi_num)
+    x <- x[rn == variable & sub == '-sub' &
+             ns == '-ns' &
+             !grepl('Cerebral Cortex', label),
+           c('roi_num', 'Estimate', 'Q0.006', 'Q99.994', 'credible')]
+    setkey(x, roi_num)
+    
+    x <- x[Sch7_400_regions]
+    this_region <- x[credible == TRUE]
+    
+    schdat <- as.data.table(schaefer7_400$data)
+    setorder(schdat, region, side)
+    schdat <- schdat[!duplicated(region)]
+    this_region <- schdat[this_region, on = 'region']
+    this_region[, Location := pander::pandoc.image.return(file.path(parcel_icon_dir, sprintf('%s_%s.png', region, side)))]
+    this_region[, 'Parcel Label' := stringr::str_replace_all(stringr::str_remove(region, '7Networks_(RH|LH)_'), '_', ' ')]
+    this_region[, Hemisphere := stringr::str_to_title(hemi)]
+    this_region[, 'Estimate [99.988% CI]' := sprintf('% 0.3f [% 0.3f, % 0.3f]', Estimate, Q0.006, Q99.994)]
+    setorder(this_region, roi_num)
+    newtable <- pander::Pandoc$new(author = 'John C. Flournoy', title = variable)
+    newtable$add(
+      pandoc.table.return(
+        this_region[, c('Hemisphere', 'Parcel Label', 'Estimate [99.988% CI]', 'Location')],
+        split.table = Inf,
+        justify = c('left', 'left', 'right', 'center')))
+    newtable$format <- 'docx'
+    if(!dir.exists(tables_dir)) dir.create(tables_dir)
+    r1 <- newtable$export(variable, open = FALSE)
+    r2 <- file.rename(paste0(variable, '.md'), file.path(tables_dir, paste0(variable, '.md')))
+    r3 <- file.rename(paste0(variable, '.docx'), file.path(tables_dir, paste0(variable, '.docx')))
+    return(all(c(r2, r3)))
+  }
+  
+  parcel_icon_dir <- 'plots/parcel_icons'
+  if(length(dir(parcel_icon_dir)) != 400) make_parcel_icons(parcel_icon_dir, dpi = 300)
   
   #average voxels per parcel
   reliability_dt[sub == '' & ns == '-ns' & rn == 'prop_var' & pred == ''][, .(nvoxel_median = quantile(nvoxel, .5),
@@ -575,6 +704,12 @@ if(INTERACTIVE){
   create_cifti(text_file = 'negative_affect-ns-sub.txt', cifti_template = 'Schaefer2018_CIFTI/Schaefer2018_400Parcels_7Networks_order.pscalar.nii', cifti_out = 'negative_affect-ns-sub_Sch400.pscalar.nii')
   create_cifti(text_file = 'sleep-ns-sub.txt', cifti_template = 'Schaefer2018_CIFTI/Schaefer2018_400Parcels_7Networks_order.pscalar.nii', cifti_out = 'sleep-ns-sub_Sch400.pscalar.nii')
   
+  write_rez_table(reliability_dt_labels, 'b_TIMECENTER')
+  write_rez_table(reliability_dt_labels, 'b_WCEN_EPISODICTOT')
+  write_rez_table(reliability_dt_labels, 'b_WCEN_CHRONICSEV')
+  write_rez_table(reliability_dt_labels, 'b_WCEN_PANASNEG')
+  write_rez_table(reliability_dt_labels, 'b_WCEN_SLEEPDUR')
+  
   model_fn_list_for_plots <- lapply(list('Month' = 'b_TIMECENTER',
                                          'Stressfull Life Events' = 'b_WCEN_EPISODICTOT',
                                          'Chronic Stress' = 'b_WCEN_CHRONICSEV',
@@ -586,52 +721,7 @@ if(INTERACTIVE){
   write.table(model_fn_df_for_plots[, mod_fn], file = 'rsync_model_list.txt', 
               col.names = FALSE, row.names = FALSE, quote = FALSE)
   
-  plot_conditional_effect <- function(x, breaks = NA, labels = NA, ylim = c(-2, 2)){
-    variable <- gsub('b_', '', x$rn)
-    xmx <- readRDS(file.path('fits', x$mod_fn))
-    sign <- x$sign
-    colors <- c('#358fc9', '#fbaa2c')
-    color <- colors[sign/2 + 1.5]
-    
-    CEdf <- conditional_effects(xmx, effects = variable, prob = .95, re_formula = NA)[[1]]
-    pointsdf <- xmx$data
-    
-    p <- ggplot() + 
-      theme_minimal() + 
-      theme(panel.grid.minor = element_blank(), axis.text.y = element_blank()) + 
-      labs(x = '', y = '') +
-      stat_summary(data = pointsdf, aes_string(group = sprintf('interaction(id, %s)', variable),
-                                               x = variable, y = 'y'),
-                   fun = mean, fun.args = list(mult = 2),
-                   alpha = .2, color = color, size = .2,
-                   position = position_jitter(w = .25)) +
-      geom_ribbon(data = CEdf, aes_string(x = variable, y = 'estimate__', 
-                                          ymin = 'lower__', ymax = 'upper__'), 
-                  alpha = .5, fill = color) + 
-      geom_line(data = CEdf, aes_string(x = variable, y = 'estimate__'), color = color) +
-      coord_cartesian(y = ylim)
-    if(!is.na(breaks)){
-      p <- p + scale_x_continuous(breaks = breaks, labels = labels)
-    }
-    if(sign < 0){
-      p <- p + theme(axis.text.x = element_blank())
-    }
-    return(p)
-  }
   
-  make_multi_plot <- function(x, xlab, file = NULL, ...){
-    p_list <- lapply(1:6, function(i){
-      plot_conditional_effect(x = x[i], ...)
-    })
-    
-    p <- wrap_plots(p_list, design = "123\n456")
-    gt <- patchwork::patchworkGrob(p)
-    pf <- gridExtra::grid.arrange(gt, left = "Fear - Calm", bottom = xlab)
-    if(!is.null(file)){
-      ggsave(file, plot = pf, width = 6, height = 4)
-    }
-    return(pf)
-  }
   
   make_multi_plot(model_fn_list_for_plots[[1]], xlab = 'Month', ylim = c(-1.75, 1.75),
                   breaks = c(-4, -1, 2, 5), labels = c(1, 4, 7, 10))
