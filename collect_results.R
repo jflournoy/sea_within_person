@@ -710,6 +710,12 @@ if(INTERACTIVE){
   write_rez_table(reliability_dt_labels, 'b_WCEN_PANASNEG')
   write_rez_table(reliability_dt_labels, 'b_WCEN_SLEEPDUR')
   
+  reliability_dt_labels[credible %in% TRUE & 
+                          roi_num > 400, lapply(.SD, round, 3), 
+                        .SDcols = c('Estimate', 'Q0.006', 'Q99.994'), 
+                        by = c('label', 'pred')]
+  
+  
   model_fn_list_for_plots <- lapply(list('Month' = 'b_TIMECENTER',
                                          'Stressfull Life Events' = 'b_WCEN_EPISODICTOT',
                                          'Chronic Stress' = 'b_WCEN_CHRONICSEV',
