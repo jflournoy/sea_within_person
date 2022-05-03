@@ -25,7 +25,7 @@ compute_reliability <- function(fit_files_dt){
   print(fit_files_dt$file)
   cfit <- read_fit_files(fit_files_dt)
   
-  model_info <- unique(fit_files_dt[, c('roi', 'sub', 'ns', 'pred')])
+  model_info <- unique(fit_files_dt[, c('roi', 'sub', 'ns', 'pred', 'alt')])
   
   #We don't compute our proportions of variance or alpha from predictor models,
   #except for the model in which we include all predictors.
@@ -40,7 +40,7 @@ compute_reliability <- function(fit_files_dt){
                                               round(abs(c(0, -1) + .05/421/2), 5)), 
                               robust = TRUE, variable = variable),
       keep.rownames = TRUE)
-    post_sum[, c('nvoxel', 'roi', 'sub', 'ns', 'pred') := c(NA, model_info)]
+    post_sum[, c('nvoxel', 'roi', 'sub', 'ns', 'pred', 'alt') := c(NA, model_info)]
     r <- list(post_sum = post_sum, density_df = NULL)
   } else {
     vc <- VarCorr(cfit, summary = FALSE)
@@ -90,20 +90,20 @@ compute_reliability <- function(fit_files_dt){
       return(d)
     }))
     post_sum <- data.table(posterior_summary(post_df, robust = TRUE), keep.rownames = TRUE)
-    post_sum[, c('nvoxel', 'roi', 'sub', 'ns', 'pred') := c(nvoxel, model_info)]
+    post_sum[, c('nvoxel', 'roi', 'sub', 'ns', 'pred', 'alt') := c(nvoxel, model_info)]
     r <- list(post_sum = post_sum, density_df = d_df)
   }
   
   return(r)
 }
 
-gsub_regex <- 'alpha-fearGTcalm-ROI([0-9]{1,3})(-more_\\d{2})*(-sub)*(-ns)*(-pred_\\w+)*.rds'
+gsub_regex <- 'alpha-fearGTcalm-ROI([0-9]{1,3})(-more_\\d{2})*(-sub)*(-ns)*(-pred(-alt)*_\\w+)*.rds'
 
 alpha_fit_files <- data.table(file = dir('fits', pattern = 'alpha-fearGTcalm.*rds'))
 alpha_fit_files[, c('roi', 'more', 'sub', 'ns', 'pred') := 
-                  lapply(list('\\1', '\\2', '\\3', '\\4', '\\5'), gsub, pattern = gsub_regex, x = file)]
+                  lapply(list('\\1', '\\2', '\\3', '\\4', '\\5', '\\6'), gsub, pattern = gsub_regex, x = file)]
 filenames <- split(split(alpha_fit_files, 
-                         by = c('roi', 'sub', 'ns', 'pred'),
+                         by = c('roi', 'sub', 'ns', 'pred', 'alt'),
                          drop = TRUE), 1:cpus_total)
 rel_fn <- 'reliability_results.rds'
 bd_fn <- 'boundary_density.rds'
@@ -150,7 +150,7 @@ if(INTERACTIVE){
   
   plot_preds <- function(x, variable, outfile){
     plot <- ggplot(x[rn == variable & sub == '-sub' &
-                       ns == '-ns' &
+                       ns == '-ns' & alt == '' &
                        ! grepl('Cerebral Cortex', label)], 
                    aes(x = Estimate, xmin = Q0.006, xmax = Q99.994, y = roi_num_reverse)) +
       geom_rect(ymin = -19, ymax = 0, xmin = -1, xmax = 1, fill = 'lightgrey') + 
@@ -168,7 +168,7 @@ if(INTERACTIVE){
   write_cifti_text <- function(x, variable, outfile){
     #x <- copy(reliability_dt_labels)
     x <- x[rn == variable & sub == '-sub' &
-             ns == '-ns' &
+             ns == '-ns' &  alt == '' &
              !grepl('Cerebral Cortex', label), 
            c('roi_num', 'Estimate', 'credible')]
     setkey(x, roi_num)
@@ -184,9 +184,9 @@ if(INTERACTIVE){
     # variable = 'b_TIMECENTER'
     # labels = copy(ho_sub_labels)
     x <- x[rn == variable & sub == '-sub' &
-             ns == '-ns' &
+             ns == '-ns' & alt == '' &
              ! grepl('Cerebral Cortex', label), 
-           c('roi_num', 'Estimate', 'credible', 'rn', 'roi', 'sub', 'ns', 'pred')]
+           c('roi_num', 'Estimate', 'credible', 'rn', 'roi', 'sub', 'ns', 'pred', 'alt')]
     setkey(x, roi_num)
     setkey(labels, roi_num)
     x <- labels[x][credible %in% TRUE]
@@ -331,7 +331,7 @@ if(INTERACTIVE){
     Sch7_400_regions[, roi_num := 1:400]
     setkey(Sch7_400_regions, roi_num)
     x <- x[rn == variable & sub == '-sub' &
-             ns == '-ns' &
+             ns == '-ns' & alt == '' &
              !grepl('Cerebral Cortex', label),
            c('roi_num', 'Estimate', 'Q0.006', 'Q99.994', 'credible')]
     setkey(x, roi_num)
@@ -370,11 +370,11 @@ if(INTERACTIVE){
                                                                               nvoxel_25 = quantile(nvoxel, .25),
                                                                               nvoxel_75 = quantile(nvoxel, .75))]
   
-  gsub_regex <- 'alpha-fearGTcalm-ROI([0-9]{1,3})(-more_\\d{2})*(-sub)*(-ns)*(-pred_\\w+)*-psamp.rds'
+  gsub_regex <- 'alpha-fearGTcalm-ROI([0-9]{1,3})(-more_\\d{2})*(-sub)*(-ns)*(-pred(-alt)*_\\w+)*-psamp.rds'
   
   postsamp_files <- data.table(file = dir('post_samples', pattern = 'alpha-fearGTcalm.*rds'))
-  postsamp_files[, c('roi', 'more', 'sub', 'ns', 'pred') := 
-                   lapply(list('\\1', '\\2', '\\3', '\\4', '\\5'), gsub, pattern = gsub_regex, x = file)]
+  postsamp_files[, c('roi', 'more', 'sub', 'ns', 'pred', 'alt') := 
+                   lapply(list('\\1', '\\2', '\\3', '\\4', '\\5', '\\6'), gsub, pattern = gsub_regex, x = file)]
   
   postsamp_filenames <- split(postsamp_files, 1:cpus_total)
   
@@ -651,7 +651,7 @@ if(INTERACTIVE){
   reliability_dt_labels[, credible_95 := (sign(Q2.5) * sign(Q97.5)) == 1]
   
   tau_pi_delta_prop_plot <- ggplot(reliability_dt_labels[rn == 'tau_pi_delta_prop' & sub == '-sub' &
-                                                    ns == '-ns' & pred == '-pred_all' &
+                                                    ns == '-ns' & pred == '-pred_all' & alt =='' & 
                                                     ! grepl('Cerebral Cortex', label)], 
                             aes(x = Estimate, xmin = Q2.5, xmax = Q97.5, y = roi_num_reverse)) +
     geom_rect(ymin = -19, ymax = 0, xmin = -1, xmax = 1, fill = 'lightgrey') + 
