@@ -1,5 +1,6 @@
 get_roi_data <- function(roi = 1, cope = 'fearGTcalm', ncpus = 1, tsv_dir = 'tsv'){
   f <- dir(tsv_dir, pattern = sprintf('\\d{4}.*%s.tsv', cope), full.names = TRUE)
+  message(sprintf('Number of files found: %d', length(f)))
   fregex <- '.*/(\\d{4})_(\\d{2})_(\\w+).tsv'
   
   sch400HO <- fread(file.path(tsv_dir, 'Sch400_HO_combined.tsv'), sep = ' ',  col.names = c('i', 'j', 'k', 'ROI'))[ROI == roi, c('i', 'j', 'k')]
