@@ -2,6 +2,7 @@ library(data.table)
 library(brms)
 CPUS_DEFAULT <- 16
 cpus_total <- as.numeric(Sys.getenv('SLURM_CPUS_PER_TASK'))
+subset_to_replace = NULL
 
 if(is.na(cpus_total)){
   message('Not running as slurm array, setting CPUs to some value: ', CPUS_DEFAULT)
@@ -110,17 +111,31 @@ compute_reliability <- function(fit_files_dt){
   return(r)
 }
 
-gsub_regex <- 'alpha-fearGTcalm-ROI([0-9]{1,3})(-more_\\d{2})*(-sub)*(-ns)*(-(?:brain)*pred(-alt)*_\\w+)*.rds'
-
-alpha_fit_files <- data.table(file = dir('fits', pattern = 'alpha-fearGTcalm.*rds'))
-alpha_fit_files[, c('roi', 'more', 'sub', 'ns', 'pred', 'alt') :=
-                  lapply(list('\\1', '\\2', '\\3', '\\4', '\\5', '\\6'), gsub, pattern = gsub_regex, x = file)]
-filenames <- split(split(alpha_fit_files,
-                         by = c('roi', 'sub', 'ns', 'pred', 'alt'),
-                         drop = TRUE), 1:cpus_total)
 rel_fn <- 'reliability_results.rds'
 bd_fn <- 'boundary_density.rds'
-if(!file.exists(rel_fn)){
+if(!file.exists(rel_fn) | !is.null(subset_to_replace)){
+  gsub_regex <- 'alpha-fearGTcalm-ROI([0-9]{1,3})(-more_\\d{2})*(-sub)*(-ns)*(-(?:brain)*pred(-alt)*_\\w+)*.rds'
+  
+  alpha_fit_files <- data.table(file = dir('fits', pattern = 'alpha-fearGTcalm.*rds'))
+  alpha_fit_files[, c('roi', 'more', 'sub', 'ns', 'pred', 'alt') :=
+                    lapply(list('\\1', '\\2', '\\3', '\\4', '\\5', '\\6'), gsub, pattern = gsub_regex, x = file)]
+  
+  #SUBSET ALT AND THEN REAED THOSE IN AND REPLACE
+  
+  if(!is.null(subset_to_replace)){
+    alpha_fit_files <- alpha_fit_files[get(subset_to_replace) != '']
+    if(file.exists(rel_fn)){
+      reliability_dt_existing <- readRDS(rel_fn)
+      reliability_dt_existing <- reliability_dt_existing[get(subset_to_replace) == '']
+    } else {
+      stop(sprintf('%s does not exist, cannot replace rows', rel_fn))
+    }
+  }
+  
+  filenames <- split(split(alpha_fit_files,
+                           by = c('roi', 'sub', 'ns', 'pred', 'alt'),
+                           drop = TRUE), 1:cpus_total)
+  
   cl <- parallel::makeCluster(cpus_total)
 
   parallel::clusterExport(cl, c('compute_reliability', 'read_fit_files'))
@@ -137,18 +152,21 @@ if(!file.exists(rel_fn)){
                                      `[[`, 'post_sum'),
                               fill = TRUE)
   #computed densities of the reliability metrices posteriors
-  boundary_density_dt <- rbindlist(lapply(reliability_list_ul,
-                                          function(rel){
-                                            rel$density_df$roi <- unique(rel$post_sum$roi)[[1]]
-                                            rel$density_df$sub <- unique(rel$post_sum$sub)[[1]]
-                                            rel$density_df$ns <- unique(rel$post_sum$ns)[[1]]
-                                            return(rel$density_df)
-                                          }), fill = TRUE)
+  # boundary_density_dt <- rbindlist(lapply(reliability_list_ul,
+  #                                         function(rel){
+  #                                           rel$density_df$roi <- unique(rel$post_sum$roi)[[1]]
+  #                                           rel$density_df$sub <- unique(rel$post_sum$sub)[[1]]
+  #                                           rel$density_df$ns <- unique(rel$post_sum$ns)[[1]]
+  #                                           return(rel$density_df)
+  #                                         }), fill = TRUE)
+  if(!is.null(subset_to_replace)){
+    reliability_dt <- rbindlist(list(reliability_dt_existing, reliability_dt), fill = TRUE)
+  }
   # ggplot(boundary_density_dt[sub == '' & ns == '-ns'], aes(x = x, y = y, group = roi)) +
   #   geom_line(alpha = .2) +
   #   facet_wrap(~ name, scales = 'free')
   saveRDS(reliability_dt, rel_fn)
-  saveRDS(boundary_density_dt, bd_fn)
+  # saveRDS(boundary_density_dt, bd_fn)
 } else {
   reliability_dt <- readRDS(rel_fn)
   boundary_density_dt <- readRDS(bd_fn)
