@@ -1,6 +1,6 @@
 library(data.table)
 library(brms)
-CPUS_DEFAULT <- 16
+CPUS_DEFAULT <- 2
 cpus_total <- as.numeric(Sys.getenv('SLURM_CPUS_PER_TASK'))
 subset_to_replace = NULL
 
