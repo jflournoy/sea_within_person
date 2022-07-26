@@ -70,7 +70,7 @@ get_selected_parcels <- function(x, variable, labels){
   # variable = 'b_TIMECENTER'
   # labels = copy(ho_sub_labels)
   x <- x[rn == variable & sub == '-sub' &
-           ns == '-ns' & alt == '' &
+           ns == '-ns' & alt == '-alt' &
            ! grepl('Cerebral Cortex', label), 
          c('roi_num', 'Estimate', 'credible', 'rn', 'roi', 'sub', 'ns', 'pred', 'alt')]
   setkey(x, roi_num)
@@ -161,7 +161,7 @@ plot_conditional_effect <- function(x, breaks = NA, labels = NA, ylim = c(-2, 2)
 }
 
 make_multi_plot <- function(x, xlab, file = NULL, ...){
-  p_list <- lapply(1:6, function(i){
+  p_list <- lapply(1:dim(x)[[1]], function(i){
     plot_conditional_effect(x = x[i], ...)
   })
   
@@ -225,12 +225,12 @@ write_rez_table <- function(x, variable, tables_dir = 'tables', outcome = NULL){
              ns == '-ns' & alt == '' &
              pred == sprintf('-brainpred_%s', outcome) &
              !grepl('Cerebral Cortex', label),
-           c('roi_num', 'Estimate', 'Q0.006', 'Q99.994', 'credible')]
+           c('roi_num', 'Estimate', 'Q2.5', 'Q97.5', 'credible')]
   } else {
     x <- x[rn == variable & sub == '-sub' &
              ns == '-ns' & alt == '-alt' &
              !grepl('Cerebral Cortex', label),
-           c('roi_num', 'Estimate', 'Q0.006', 'Q99.994', 'credible')]  
+           c('roi_num', 'Estimate', 'Q2.5', 'Q97.5', 'credible')]  
   }
   
   setkey(x, roi_num)
@@ -245,13 +245,13 @@ write_rez_table <- function(x, variable, tables_dir = 'tables', outcome = NULL){
   this_region[, Location := pander::pandoc.image.return(file.path(parcel_icon_dir, sprintf('%s_%s.png', region, side)))]
   this_region[, 'Parcel Label' := stringr::str_replace_all(stringr::str_remove(region, '7Networks_(RH|LH)_'), '_', ' ')]
   this_region[, Hemisphere := stringr::str_to_title(hemi)]
-  this_region[, 'Estimate [99.988% CI]' := sprintf('% 0.3f [% 0.3f, % 0.3f]', Estimate, Q0.006, Q99.994)]
+  this_region[, 'Estimate [95% CI]' := sprintf('% 0.3f [% 0.3f, % 0.3f]', Estimate, Q2.5, Q97.5)]
   setorder(this_region, roi_num)
   title <- paste(c(variable, outcome), collapse = '-')
   newtable <- pander::Pandoc$new(author = 'John C. Flournoy', title = title)
   newtable$add(
     pander::pandoc.table.return(
-      this_region[, c('Hemisphere', 'Parcel Label', 'Estimate [99.988% CI]', 'Location')],
+      this_region[, c('Hemisphere', 'Parcel Label', 'Estimate [95% CI]', 'Location')],
       split.table = Inf,
       justify = c('left', 'left', 'right', 'center')))
   newtable$format <- 'docx'
@@ -611,7 +611,7 @@ reliability_dt_labels_sleepneg <- copy(
 reliability_dt_labels <- data.table::rbindlist(list(reliability_dt_labels, reliability_dt_labels_sleepneg))
 
 #preds versus pred-alts
-reliability_dt_labels[grepl('-pred', pred) & pred != '-pred_all', c('rn', 'Estimate', 'alt', 'pred')] %>% View
+reliability_dt_labels[grepl('-pred', pred) & pred != '-pred_all', c('rn', 'Estimate', 'alt', 'pred')]
 
 plot_preds(x = reliability_dt_labels, variable = 'b_TIMECENTER', outfile = 'time-ns-sub.svg')
 plot_preds(x = reliability_dt_labels, variable = 'b_WCEN_EPISODICTOT', outfile = 'episodic_stress-ns-sub.svg')
@@ -663,7 +663,7 @@ create_cifti(text_file = 'sleep-ns-sub_psign_unthreshed.txt', cifti_template = '
 
 reliability_dt_labels[credible %in% TRUE & 
                         roi_num > 400, lapply(.SD, round, 3), 
-                      .SDcols = c('Estimate', 'Q0.006', 'Q99.994'), 
+                      .SDcols = c('Estimate', 'Q2.5', 'Q97.5'), 
                       by = c('label', 'pred')]
 
 
@@ -678,10 +678,8 @@ model_fn_df_for_plots <- rbindlist(model_fn_list_for_plots)
 write.table(model_fn_df_for_plots[, mod_fn], file = 'rsync_model_list.txt', 
             col.names = FALSE, row.names = FALSE, quote = FALSE)
 
-
-
-make_multi_plot(model_fn_list_for_plots[[1]], xlab = 'Month', ylim = c(-1.75, 1.75),
-                breaks = c(-4, -1, 2, 5), labels = c(1, 4, 7, 10))
+# make_multi_plot(model_fn_list_for_plots[[1]], xlab = 'Month', ylim = c(-1.75, 1.75),
+#                 breaks = c(-4, -1, 2, 5), labels = c(1, 4, 7, 10))
 
 mplots <- mapply(make_multi_plot, model_fn_list_for_plots,
                  file = sprintf('ex-scatters_%s.svg', 
@@ -830,7 +828,7 @@ ggplot(dcast(reliability_dt[(rn == 'prop_var' | rn == 'prop_var_id') & ns == '-n
 
 sch400_HO_dump <- fread('Sch400_HO_maskdump.tsv', sep = ' ',  col.names = c('i', 'j', 'k', 'roi_num'), header = FALSE)
 
-prop_var_sub_out_dt <- reliability_dt[rn == 'prop_var' & sub == '-sub' & ns == '-ns', ][sch400_HO_dump, on = 'roi_num']
-prop_var_sub_out_dt[is.na(Estimate), c('Estimate', 'Q2.5', 'Q97.5') := 0]
+#prop_var_sub_out_dt <- reliability_dt[rn == 'prop_var' & sub == '-sub' & ns == '-ns', ][sch400_HO_dump, on = 'roi_num']
+#prop_var_sub_out_dt[is.na(Estimate), c('Estimate', 'Q2.5', 'Q97.5') := 0]
 
-readr::write_delim(prop_var_sub_out_dt[, c('i', 'j', 'k', 'Estimate')], 'prop_id-sess_var_15voxsub.tsv', delim = ' ', col_names = FALSE)
+#readr::write_delim(prop_var_sub_out_dt[, c('i', 'j', 'k', 'Estimate')], 'prop_id-sess_var_15voxsub.tsv', delim = ' ', col_names = FALSE)

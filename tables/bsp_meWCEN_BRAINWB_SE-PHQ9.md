@@ -1,17 +1,8 @@
 John C. Flournoy
 bsp_meWCEN_BRAINWB_SE-PHQ9
-% Tue Jun 14 23:32:33 2022
-
-------------------------------------------------------------------------------------------------------------------------------------------
-Hemisphere   Parcel Label                 Estimate [99.988% CI]                                  Location                                 
------------- ------------------------- ------------------------ --------------------------------------------------------------------------
-Right        SomMot 22                   -0.025 [-0.060, 0.007]         ![](plots/parcel_icons/7Networks_RH_SomMot_22_lateral.png)        
-
-Right        SomMot 29                   -0.013 [-0.035, 0.007]         ![](plots/parcel_icons/7Networks_RH_SomMot_29_lateral.png)        
-
-Right        SalVentAttn FrOperIns 6      0.017 [-0.013, 0.045]  ![](plots/parcel_icons/7Networks_RH_SalVentAttn_FrOperIns_6_lateral.png) 
-
-Right        Cont PFCl 11                 0.016 [-0.010, 0.042]       ![](plots/parcel_icons/7Networks_RH_Cont_PFCl_11_lateral.png)       
-
-Right        Default pCunPCC 1            0.013 [-0.007, 0.035]     ![](plots/parcel_icons/7Networks_RH_Default_pCunPCC_1_medial.png)     
-------------------------------------------------------------------------------------------------------------------------------------------
+% Tue Jul 26 16:09:18 2022
+[1] "\n-------------------------------------------------------------------------------------------------------------------------------------------\nHemisphere   Parcel Label                      Estimate [95% CI]                                  Location                                 \n------------ ------------------------- ------------------------- --------------------------------------------------------------------------\nRight        SomMot 22                   -0.025 [-0.042, -0.008]         ![](plots/parcel_icons/7Networks_RH_SomMot_22_lateral.png)        \n\nRight        SomMot 29                   -0.013 [-0.024, -0.002]         ![](plots/parcel_icons/7Networks_RH_SomMot_29_lateral.png)        \n\nRight        SalVentAttn FrOperIns 6       0.017 [ 0.003, 0.032]  ![](plots/parcel_icons/7Networks_RH_SalVentAttn_FrOperIns_6_lateral.png) \n\nRight        Cont PFCl 11                  0.016 [ 0.002, 0.029]       ![](plots/parcel_icons/7Networks_RH_Cont_PFCl_11_lateral.png)       \n\nRight        Default pCunPCC 1             0.013 [ 0.002, 0.023]     ![](plots/parcel_icons/7Networks_RH_Default_pCunPCC_1_medial.png)     \n-------------------------------------------------------------------------------------------------------------------------------------------\n\n"
+attr(,"class")
+[1] "knit_asis"
+attr(,"knit_cacheable")
+[1] NA

@@ -1,23 +1,8 @@
 John C. Flournoy
 b_WCEN_CHRONICSEV
-% Tue Jun 14 23:32:26 2022
-
-------------------------------------------------------------------------------------------------------------------------------
-Hemisphere   Parcel Label           Estimate [99.988% CI]                               Location                              
------------- -------------------- ----------------------- --------------------------------------------------------------------
-Left         Vis 24                 0.124 [-0.055, 0.314]       ![](plots/parcel_icons/7Networks_LH_Vis_24_lateral.png)       
-
-Left         DorsAttn Post 13       0.135 [-0.070, 0.350]  ![](plots/parcel_icons/7Networks_LH_DorsAttn_Post_13_lateral.png)  
-
-Left         Default PFC 16         0.137 [-0.078, 0.339]   ![](plots/parcel_icons/7Networks_LH_Default_PFC_16_lateral.png)   
-
-Left         Default PFC 21         0.139 [-0.048, 0.318]   ![](plots/parcel_icons/7Networks_LH_Default_PFC_21_lateral.png)   
-
-Left         Default PFC 22         0.141 [-0.047, 0.334]   ![](plots/parcel_icons/7Networks_LH_Default_PFC_22_lateral.png)   
-
-Left         Default pCunPCC 6      0.168 [-0.105, 0.415]  ![](plots/parcel_icons/7Networks_LH_Default_pCunPCC_6_medial.png)  
-
-Left         Default pCunPCC 10     0.148 [-0.070, 0.368]  ![](plots/parcel_icons/7Networks_LH_Default_pCunPCC_10_medial.png) 
-
-Right        Default pCunPCC 5      0.167 [-0.071, 0.434]  ![](plots/parcel_icons/7Networks_RH_Default_pCunPCC_5_medial.png)  
-------------------------------------------------------------------------------------------------------------------------------
+% Tue Jul 26 16:09:17 2022
+[1] "\n------------------------------------------------------------------------------------------------------------------------------\nHemisphere   Parcel Label               Estimate [95% CI]                               Location                              \n------------ -------------------- ----------------------- --------------------------------------------------------------------\nLeft         Vis 24                 0.124 [ 0.031, 0.220]       ![](plots/parcel_icons/7Networks_LH_Vis_24_lateral.png)       \n\nLeft         DorsAttn Post 13       0.135 [ 0.025, 0.250]  ![](plots/parcel_icons/7Networks_LH_DorsAttn_Post_13_lateral.png)  \n\nLeft         Default PFC 16         0.137 [ 0.028, 0.248]   ![](plots/parcel_icons/7Networks_LH_Default_PFC_16_lateral.png)   \n\nLeft         Default PFC 21         0.139 [ 0.040, 0.235]   ![](plots/parcel_icons/7Networks_LH_Default_PFC_21_lateral.png)   \n\nLeft         Default PFC 22         0.141 [ 0.038, 0.247]   ![](plots/parcel_icons/7Networks_LH_Default_PFC_22_lateral.png)   \n\nLeft         Default pCunPCC 6      0.168 [ 0.032, 0.306]  ![](plots/parcel_icons/7Networks_LH_Default_pCunPCC_6_medial.png)  \n\nLeft         Default pCunPCC 10     0.148 [ 0.032, 0.265]  ![](plots/parcel_icons/7Networks_LH_Default_pCunPCC_10_medial.png) \n\nRight        Default pCunPCC 5      0.167 [ 0.028, 0.308]  ![](plots/parcel_icons/7Networks_RH_Default_pCunPCC_5_medial.png)  \n------------------------------------------------------------------------------------------------------------------------------\n\n"
+attr(,"class")
+[1] "knit_asis"
+attr(,"knit_cacheable")
+[1] NA
