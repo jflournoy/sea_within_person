@@ -611,7 +611,43 @@ reliability_dt_labels_sleepneg <- copy(
 reliability_dt_labels <- data.table::rbindlist(list(reliability_dt_labels, reliability_dt_labels_sleepneg))
 
 #preds versus pred-alts
-reliability_dt_labels[grepl('-pred', pred) & pred != '-pred_all', c('rn', 'Estimate', 'alt', 'pred')] %>% View
+ggplot(dcast(reliability_dt_labels[grepl('-pred', pred) & pred != '-pred_all', c('rn', 'roi_num', 'Estimate', 'alt')], ... ~ alt, value.var = 'Estimate'),
+       aes(x = V1, y = `-alt`)) + 
+  geom_abline(intercept = 0, slope = 1, color = 'black') +
+  geom_point(alpha = .5, aes(color = rn)) + 
+  theme_minimal() + 
+  labs(title = 'Correlation between estimates\nfor correct and incorrect specifications',
+    x = 'RE by `id` (un-nested, incorrect)', y = 'RE by `id/sess` (nested, correct)', color = 'Predictor')
+
+previously_credible <- reliability_dt_labels[grepl('-pred', pred) & pred != '-pred_all' & credible_99 %in% c(TRUE) & alt == '', c('rn', 'roi_num')]
+
+ggplot(dcast(reliability_dt_labels[grepl('-pred', pred) & pred != '-pred_all', c('rn', 'roi_num', 'Estimate', 'alt')], ... ~ alt, value.var = 'Estimate')[
+  previously_credible, on = c('rn', 'roi_num')],
+       aes(x = V1, y = `-alt`)) + 
+  geom_abline(intercept = 0, slope = 1, color = 'black') +
+  geom_point(alpha = .5, aes(color = rn)) + 
+  theme_minimal() + 
+  labs(title = 'Correlation between estimates\nfor correct and incorrect specifications',
+       subtitle = 'From previously significant parcels',
+       x = 'RE by `id` (un-nested, incorrect)', y = 'RE by `id/sess` (nested, correct)', color = 'Predictor')
+
+ggplot(dcast(reliability_dt_labels[grepl('-pred', pred) & pred != '-pred_all', c('rn', 'roi_num', 'Est.Error', 'alt')], ... ~ alt, value.var = 'Est.Error'),
+       aes(x = V1, y = `-alt`)) + 
+  geom_abline(intercept = 0, slope = 1, color = 'black') +
+  geom_point(alpha = .5, aes(color = rn)) + 
+  theme_minimal() + 
+  labs(title = 'Increased uncertainty in correctly specified models',
+       x = 'RE by `id` (un-nested, incorrect)', y = 'RE by `id/sess` (nested, correct)', color = 'Predictor')
+
+ggplot(dcast(reliability_dt_labels[grepl('-pred', pred) & pred != '-pred_all', c('rn', 'roi_num', 'Est.Error', 'alt')], ... ~ alt, value.var = 'Est.Error')[
+  previously_credible, on = c('rn', 'roi_num')],
+       aes(x = V1, y = `-alt`)) + 
+  geom_abline(intercept = 0, slope = 1, color = 'black') +
+  geom_point(alpha = .5, aes(color = rn)) + 
+  theme_minimal() + 
+  labs(title = 'Increased uncertainty in correctly specified models',
+       subtitle = 'From previously significant parcels',
+       x = 'RE by `id` (un-nested, incorrect)', y = 'RE by `id/sess` (nested, correct)', color = 'Predictor')
 
 plot_preds(x = reliability_dt_labels, variable = 'b_TIMECENTER', outfile = 'time-ns-sub.svg')
 plot_preds(x = reliability_dt_labels, variable = 'b_WCEN_EPISODICTOT', outfile = 'episodic_stress-ns-sub.svg')
@@ -647,6 +683,9 @@ write_rez_table(reliability_dt_labels, 'b_WCEN_PANASNEG')
 write_rez_table(reliability_dt_labels, 'b_WCEN_SLEEPDUR')
 write_rez_table(reliability_dt_labels, 'bsp_meWCEN_BRAINWB_SE', outcome = 'GAD7')
 write_rez_table(reliability_dt_labels, 'bsp_meWCEN_BRAINWB_SE', outcome = 'PHQ9')
+
+#View(reliability_dt_labels[alt == '-alt' & roi_num > 400, c('label', 'rn', 'Estimate', 'p_nSSEst', 'Type_S')])
+reliability_dt_labels[alt == '-alt' & roi_num > 400 & credible == TRUE, c('label', 'rn', 'Estimate', 'p_nSSEst', 'Type_S')]
 
 write_cifti_text(x = reliability_dt_labels, variable = 'b_TIMECENTER', unthreshed = TRUE, psign = TRUE, outfile = 'time-ns-sub_psign_unthreshed.txt')
 write_cifti_text(x = reliability_dt_labels, variable = 'b_WCEN_EPISODICTOT', unthreshed = TRUE, psign = TRUE, outfile = 'episodic_stress-ns-sub_psign_unthreshed.txt')
