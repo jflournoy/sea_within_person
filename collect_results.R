@@ -1,8 +1,10 @@
 library(data.table)
 library(brms)
-CPUS_DEFAULT <- 2
+CPUS_DEFAULT <- 4
 cpus_total <- as.numeric(Sys.getenv('SLURM_CPUS_PER_TASK'))
-subset_to_replace = NULL
+
+files_to_include_expression <- NULL
+data_rows_to_keep_expression <- NULL
 
 if(is.na(cpus_total)){
   message('Not running as slurm array, setting CPUs to some value: ', CPUS_DEFAULT)
@@ -27,7 +29,7 @@ compute_reliability <- function(fit_files_dt){
   print(fit_files_dt$file)
   cfit <- read_fit_files(fit_files_dt)
 
-  model_info <- unique(fit_files_dt[, c('roi', 'sub', 'ns', 'pred', 'alt')])
+  model_info <- unique(fit_files_dt[, c('contrast', 'roi', 'sub', 'ns', 'pred', 'alt', 'cntrlreg', 'network')])
 
   #We don't compute our proportions of variance or alpha from predictor models,
   #except for the model in which we include all predictors.
@@ -50,7 +52,7 @@ compute_reliability <- function(fit_files_dt){
                                                    draws = length))
     setnames(p_sign_prop, 'variable', 'rn')
     post_sum <- merge(post_sum, p_sign_prop, by = c('rn'))
-    post_sum[, c('roi', 'sub', 'ns', 'pred', 'alt') := c(model_info)]
+    post_sum[, c('contrast', 'roi', 'sub', 'ns', 'pred', 'alt', 'cntrlreg', 'network') := c(model_info)]
     
     d_df <- as.data.table(density(post_samples[, variable], n = 100)[c('x', 'y')])
     d_df$name <- variable
@@ -58,11 +60,16 @@ compute_reliability <- function(fit_files_dt){
     r <- list(post_sum = post_sum, density_df = d_df)
   } else {
     vc <- VarCorr(cfit, summary = FALSE)
-    tau_pi <- vc$`id:sess`$sd^2
     tau_beta <- vc$id$sd^2
     sigma2 <- vc$residual__$sd^2
-
-    nvoxel <- length(cfit$data$y)/dim(unique(cfit$data[, c('sess', 'id:sess')]))[[1]]
+    
+    if(model_info$network == '-network'){
+      tau_pi <- vc$`id:sess_fac`$sd^2
+      nvoxel <- length(cfit$data$y)/dim(unique(cfit$data[, c('sess_fac', 'id:sess_fac')]))[[1]]
+    } else {
+      tau_pi <- vc$`id:sess`$sd^2
+      nvoxel <- length(cfit$data$y)/dim(unique(cfit$data[, c('sess', 'id:sess')]))[[1]]
+    }
     alpha_post <- tau_pi / (tau_pi + sigma2/nvoxel)
     total_var <- tau_pi + tau_beta + sigma2
     pvar <- tau_pi / total_var
@@ -104,36 +111,66 @@ compute_reliability <- function(fit_files_dt){
       return(d)
     }))
     post_sum <- data.table(posterior_summary(post_df, robust = TRUE), keep.rownames = TRUE)
-    post_sum[, c('nvoxel', 'roi', 'sub', 'ns', 'pred', 'alt') := c(nvoxel, model_info)]
+    post_sum[, c('nvoxel', 'contrast', 'roi', 'sub', 'ns', 'pred', 'alt', 'cntrlreg', 'network') := c(nvoxel, model_info)]
     r <- list(post_sum = post_sum, density_df = d_df)
   }
 
   return(r)
 }
 
+collect_smoothness <- function(data_file_source = '/ncf/mclaughlin/stressdevlab/stress_pipeline/Group/FaceReactivity/NewNeuropoint/datafiles/setfilenames_fearGTcalm.txt'){
+  data_files <- fread(data_file_source, header = FALSE, col.names = 'file')
+  data_files[, c('ID', 'sess') := transpose(stringi::stri_match_all(file, regex = '.*/(\\d{4})/month(\\d{2})/.*'))[2:3]]
+  data_files[, file := NULL]
+  smoothness_data_files <- dir('smoothness', pattern = '\\d{1,3}.*txt', full.names = TRUE)
+  smoothness_subcort_data_files <- dir('smoothness_subcort', pattern = '\\d{1,3}.*txt', full.names = TRUE)
+  smoothness_cntrl_data_files <- dir('smoothness_cntrl', pattern = '\\d{1,3}.*txt', full.names = TRUE)
+  names(smoothness_data_files) <- stringi::stri_match_first_regex(smoothness_data_files, '\\w+/(\\d{1,3})-.*')[, 2]
+  names(smoothness_subcort_data_files) <- 400 + as.numeric(stringi::stri_match_first_regex(smoothness_subcort_data_files, '\\w+/(\\d{1,3})-.*')[, 2])
+  names(smoothness_cntrl_data_files) <- stringi::stri_match_first_regex(smoothness_cntrl_data_files, '\\w+/(\\d{1,3})-.*')[, 2]
+
+  smoothness_data_list <- lapply(list(cort = smoothness_data_files, subcort = smoothness_subcort_data_files, cntrl = smoothness_cntrl_data_files), 
+                                 \(x){
+                                   d_list <- lapply(x, \(y) tryCatch(cbind(data_files, 
+                                                                           fread(y, header = TRUE, colClasses = 'numeric', col.names = 'smoothness')),
+                                                                     error = \(y) return(NULL)))
+                                   return(rbindlist(d_list, idcol = 'roi'))
+                                 })
+  smoothness_data <- rbindlist(smoothness_data_list, idcol = 'anatomy')
+  return(smoothness_data)
+}
+
+
 rel_fn <- 'reliability_results.rds'
 bd_fn <- 'boundary_density.rds'
-if(!file.exists(rel_fn) | !is.null(subset_to_replace)){
-  gsub_regex <- 'alpha-fearGTcalm-ROI([0-9]{1,3})(-more_\\d{2})*(-sub)*(-ns)*(-(?:brain)*pred(-alt)*_\\w+)*.rds'
+smoothness_fn <- 'smoothness_results.rds'
+
+#SET THESE TO NULL USUALLY
+#files_to_include_expression <- "contrast == 'scramble' & pred == ''"
+#files_to_include_expression <- "cntrlreg == '-cntrlreg' & contrast == 'scramble'"
+#files_to_include_expression <- "network == '-network' & roi > 100"
+#data_rows_to_keep_expression <- "cntrlreg != '-cntrlreg'"
+if(!file.exists(rel_fn) | !is.null(files_to_include_expression)){
+  gsub_regex <- 'alpha-fearGT(calm|scramble)-ROI([0-9]{1,3})(-more_\\d{2})*(-sub)*(-ns)*(-(?:brain)*pred(-alt)*_\\w+)*(-cntrlreg)*(-network)*.rds'
   
-  alpha_fit_files <- data.table(file = dir('fits', pattern = 'alpha-fearGTcalm.*rds'))
-  alpha_fit_files[, c('roi', 'more', 'sub', 'ns', 'pred', 'alt') :=
-                    lapply(list('\\1', '\\2', '\\3', '\\4', '\\5', '\\6'), gsub, pattern = gsub_regex, x = file)]
+  alpha_fit_files <- data.table(file = dir('fits', pattern = 'alpha-fearGT.*rds'))
+  alpha_fit_files[, c('contrast', 'roi', 'more', 'sub', 'ns', 'pred', 'alt', 'cntrlreg', 'network') :=
+                    lapply(list('\\1', '\\2', '\\3', '\\4', '\\5', '\\6', '\\7', '\\8', '\\9'), gsub, pattern = gsub_regex, x = file)]
   
-  #SUBSET ALT AND THEN REAED THOSE IN AND REPLACE
-  
-  if(!is.null(subset_to_replace)){
-    alpha_fit_files <- alpha_fit_files[get(subset_to_replace) != '']
+  if(!is.null(files_to_include_expression)){
+    alpha_fit_files <- subset(alpha_fit_files, eval(parse(text = files_to_include_expression)))
     if(file.exists(rel_fn)){
       reliability_dt_existing <- readRDS(rel_fn)
-      reliability_dt_existing <- reliability_dt_existing[get(subset_to_replace) == '']
+      if(!is.null(data_rows_to_keep_expression)){
+        reliability_dt_existing <- subset(reliability_dt_existing, eval(parse(text = data_rows_to_keep_expression)))
+      }
     } else {
-      stop(sprintf('%s does not exist, cannot replace rows', rel_fn))
+      reliability_dt_existing <- NULL
     }
   }
   
   filenames <- split(split(alpha_fit_files,
-                           by = c('roi', 'sub', 'ns', 'pred', 'alt'),
+                           by = c('contrast', 'roi', 'sub', 'ns', 'pred', 'alt', 'cntrlreg', 'network'),
                            drop = TRUE), 1:cpus_total)
   
   cl <- parallel::makeCluster(cpus_total)
@@ -141,7 +178,7 @@ if(!file.exists(rel_fn) | !is.null(subset_to_replace)){
   parallel::clusterExport(cl, c('compute_reliability', 'read_fit_files'))
   nada <- parallel::clusterEvalQ(cl, {library(data.table); library(brms); setDTthreads(1)})
   system.time({reliability_list <- parallel::parLapply(cl = cl, filenames, function(some_fns){
-    lapply(some_fns, compute_reliability)
+    lapply(some_fns, \(x) tryCatch(compute_reliability(x), error = NULL))
   })})
 
   parallel::stopCluster(cl)
@@ -159,9 +196,10 @@ if(!file.exists(rel_fn) | !is.null(subset_to_replace)){
   #                                           rel$density_df$ns <- unique(rel$post_sum$ns)[[1]]
   #                                           return(rel$density_df)
   #                                         }), fill = TRUE)
-  if(!is.null(subset_to_replace)){
+  if(!is.null(reliability_dt_existing)){
     reliability_dt <- rbindlist(list(reliability_dt_existing, reliability_dt), fill = TRUE)
   }
+  #reliability_dt[is.na(network), network := '']
   # ggplot(boundary_density_dt[sub == '' & ns == '-ns'], aes(x = x, y = y, group = roi)) +
   #   geom_line(alpha = .2) +
   #   facet_wrap(~ name, scales = 'free')
@@ -172,4 +210,10 @@ if(!file.exists(rel_fn) | !is.null(subset_to_replace)){
   boundary_density_dt <- readRDS(bd_fn)
 }
 
-
+if(!file.exists(smoothness_fn)){
+  smoothness_data <- collect_smoothness()
+  smoothness_data[smoothness < 2.71, smoothness := NA]
+  saveRDS(smoothness_data, smoothness_fn)
+} else {
+  smoothness_data <- readRDS(smoothness_fn)
+}

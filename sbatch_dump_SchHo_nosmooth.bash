@@ -4,7 +4,7 @@
 #SBATCH -n 1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem-per-cpu=3G
-#SBATCH -p ncf
+#SBATCH -p fasse
 #SBATCH --account=mclaughlin_lab
 # Outputs ----------------------------------
 #SBATCH -o log/%x-%A_%a.out
@@ -36,13 +36,15 @@ file=${files[$N]}
 calm=${file%cope4.nii.gz}cope10.nii.gz
 fear=${file%cope4.nii.gz}cope11.nii.gz
 happy=${file%cope4.nii.gz}cope12.nii.gz
+scramble=${file%cope4.nii.gz}cope13.nii.gz
+fearGTscramble=${file%cope4.nii.gz}cope6.nii.gz
 happyGTcalm=${file%cope4.nii.gz}cope7.nii.gz
-copes=(${file} ${calm} ${fear} ${happy} ${happyGTcalm})
-names=(fearGTcalm calm fear happy happyGTcalm)
+copes=(${file} ${calm} ${fear} ${happy} ${happyGTcalm} ${fearGTscramble})
+names=(fearGTcalm calm fear happy happyGTcalm fearGTscramble)
 
 outfilepre=$(echo $file | sed -e 's/.*\([0-9]\{4\}\)\/month\([0-9]\{2\}\).*/\1_\2/')
 
-J=(0 1 2 3 4)
+J=(5)
 for jj in ${J[@]}; do
   if [ ! -f  "tsv_nosmooth/${outfilepre}_${names[${jj}]}.tsv" ]; then
     3dmaskdump -mask Sch400_HO_combined.nii.gz -nozero -o "tsv_nosmooth/${outfilepre}_${names[${jj}]}.tsv" "${copes[${jj}]}"
